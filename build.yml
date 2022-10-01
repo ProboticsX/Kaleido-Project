@@ -1,0 +1,308 @@
+setup: 
+  - sudo apt-get update -y
+  - sudo apt-get install git wget -y
+  - sudo apt-get install -qq -y debconf-utils
+  - export DEBIAN_FRONTEND="noninteractive"  
+  - sudo apt install jq -y 
+  - sudo apt install nodejs -y
+  - sudo apt install npm -y  
+ 
+Variable:
+  - DEBIAN_FRONTEND="noninteractive"
+
+jobs:
+  - name: itrust-build
+    clone:
+      - name: remove iTrust if it already exists
+        run: rm -rf iTrust2-v10
+      - name: clone itrust
+        run: git clone https://token@github.ncsu.edu/engr-csc326-staff/iTrust2-v10.git
+    sql_setup:
+      - name: Setup SQL
+        run: echo \"mysql-server mysql-server/root_password password passwd\" | sudo debconf-set-selections
+      - name: SQL 
+        run: echo \"mysql-server mysql-server/root_password_again password passwd\" | sudo debconf-set-selections
+      - name: create application.yml file
+        run: cp iTrust2-v10/iTrust2/src/main/resources/application.yml.template iTrust2-v10/iTrust2/src/main/resources/application.yml 
+      - name: set password in application.yml
+        run: sed -i 's/password\:/password\:\ passwd/g' iTrust2-v10/iTrust2/src/main/resources/application.yml
+      - name: install mysql
+        run: sudo apt-get install -y mysql-server   
+    steps: 
+      - name: Install Maven
+        run: sudo apt-get install maven -y
+      - name: Set path
+        run: export PATH=/opt/apache-maven-3.8.4/bin:$PATH
+      - name: install JRE
+        run: sudo apt-get install default-jre -y
+      - name: install JDK
+        run: sudo apt-get install openjdk-11-jdk -y     
+      - name: test iTrust1
+        run: cd iTrust2-v10/iTrust2 && mvn --batch-mode --update-snapshots clean test
+
+  - name: mutation-coverage
+    iterations: 2
+    snapshots:
+      - http://localhost:3000/survey/upload.md
+      - http://localhost:3000/survey/long.md
+      - http://localhost:3000/survey/survey.md
+      - http://localhost:3000/survey/variations.md
+    clone:
+      - name: remove checkbox.io-micro-preview if it already exists
+        run: rm -rf checkbox.io-micro-preview
+      - name: remove screenshot if it already exists
+        run: rm -rf screenshot
+      - name: remove referenceSnaps if it already exists
+        run:  rm -rf referenceSnaps
+      - name: clone checkbox micro-preview
+        run: git clone https://token@github.com/chrisparnin/checkbox.io-micro-preview
+      - name: clone screenshot
+        run: git clone https://token@github.com/ruttabega/screenshot
+    send_files_to_vm:
+      - name: copy screenshot.json
+        run: cp /bakerx/screenshotDetails.json ~/screenshotDetails.json"
+      - name: copy final.sh
+        run: cp /bakerx/final.sh . 
+      - name: replace in final.sh
+        run:  sed -i 's/\\r//g' final.sh
+      - name: copy screenshot.js
+        run: cp -f /bakerx/screenshot.js  /home/vagrant/screenshot/screenshot.js
+    steps:
+      - name: Installations
+        run: sudo apt-get install -y imagemagick chromium-browser
+      - name: setup snapshot
+        run: cd screenshot && npm i && sudo npm link
+      - name: run service
+        run: cd checkbox.io-micro-preview && npm install express && sudo npm install forever -g && sudo npm install escodegen && sudo npm install esprima && forever start index.js
+      - name: Install libraries for snapshot utility
+        run: sudo apt-get install gconf-service libasound2 libatk1.0-0 libc6 libcairo2 libcups2 libdbus-1-3 libexpat1 libfontconfig1 libgcc1 libgconf-2-4 libgdk-pixbuf2.0-0 libglib2.0-0 libgtk-3-0 libnspr4 libpango-1.0-0 libpangocairo-1.0-0 libstdc++6 libx11-6 libx11-xcb1 libxcb1 libxcomposite1 libxcursor1 libxdamage1 libxext6 libxfixes3 libxi6 libxrandr2 libxrender1 libxss1 libxtst6 ca-certificates fonts-liberation libappindicator1 libnss3 lsb-release xdg-utils wget -y
+      - name: take screenshot of upload.md
+        run: mkdir referenceSnaps && cd referenceSnaps && sudo apt-get install -y libgbm-dev && screenshot http://localhost:3000/survey/long.md ref_long && screenshot http://localhost:3000/survey/survey.md ref_survey && screenshot http://localhost:3000/survey/upload.md ref_upload && screenshot http://localhost:3000/survey/variations.md ref_variations
+      - name: stop service
+        run: cd checkbox.io-micro-preview && forever stop index.js
+      - name: copy mutate.js
+        run: cp /bakerx/mutate.js /home/vagrant/mutate.js && sudo npm install escodegen && sudo npm install esprima
+      - name: Clean structure
+        run: rm -rf /bakerx/mutation /home/vagrant/mutation
+      - name: store mutation screenshots in the folders created 
+        run: mkdir mutation && cd mutation && mkdir upload && mkdir long && mkdir survey && mkdir variations
+
+  - name: itrust-deploy
+    deployment_file_path: iTrust2-v10/iTrust2/target/iTrust2-10.jar
+    application_name: iTrust2
+    end_point: iTrust2/login
+    execute_permission:
+      - name: permit web-srv
+        run: chmod 600 web-srv
+    vm_steps: 
+      - name: copy web-srv
+        run: cp /bakerx/web-srv .ssh/
+      - name: permit web-srv in VM
+        run: chmod 600 .ssh/web-srv
+      - name: package application
+        run: cd iTrust2-v10/iTrust2/ && mvn package
+      - name: install seige
+        run: sudo apt install siege -y
+    sql_setup:
+      - name: configure mysql password
+        run: echo "mysql-server mysql-server/root_password password passwd" | sudo debconf-set-selections
+      - name: configure mysql password
+        run: echo "mysql-server mysql-server/root_password_again password passwd" | sudo debconf-set-selections
+      - name: install mysql-server
+        run: sudo apt-get install -y mysql-server
+      - name: start mysql
+        run: sudo systemctl start mysql
+    droplet_steps:
+      - name: Update command
+        run: sudo apt-get update
+      - name: install JRE
+        run: sudo apt install default-jre -y
+      - name: install JDK
+        run: sudo apt install openjdk-11-jdk -y
+      - name: install Maven
+        run: sudo apt install maven -y ; export PATH=/opt/apache-maven-3.6.3/bin:$PATH 
+      - name: execute jar file
+        run: java -jar iTrust2-10.jar > output.txt 2>&1 &
+    proxy_steps:
+      - name: Run the proxy server
+        run: pipeline serve
+
+  - name: pet-build
+    steps:
+      - name: Remove folder
+        run: rm -rf spring-petclinic
+      - name: Git Clone
+        run: git clone https://github.com/spring-projects/spring-petclinic.git
+      - name: Create jar file
+        run: cd spring-petclinic && mvn package
+
+  - name: pet-deploy
+    end_point: ""
+    execute_permission:
+      - name: permit web-srv
+        run: chmod 600 web-srv
+    vm_steps: 
+      - name: install seige
+        run: sudo apt install siege -y
+      - name: copy web-srv
+        run: cp /bakerx/web-srv .ssh/
+      - name: permit web-srv in VM
+        run: chmod 600 .ssh/web-srv
+    droplet_steps:
+      - name: Updating command
+        run: sudo apt-get update -y
+      - name: install JRE
+        run: sudo apt-get install default-jre -y
+      - name: install JDK
+        run: sudo apt-get install openjdk-11-jdk -y 
+      - name: run jar file
+        run: java -jar spring-petclinic-2.6.0-SNAPSHOT.jar > output.txt 2>&1 &
+  
+  - name: pet-test
+    steps:
+      - name: Testing command
+        run: cd spring-petclinic && mvn clean test
+
+  - name: pet-analysis
+    steps:
+      - name: remove folder
+        run: rm -rf codacy-analysis-cli
+      - name: clone
+        run: git clone https://github.com/codacy/codacy-analysis-cli.git
+      - name: update command
+        run: sudo apt update
+      - name: install docker
+        run: sudo apt install apt-transport-https ca-certificates curl software-properties-common
+      - name: install docker
+        run: curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
+      - name: install docker
+        run: sudo add-apt-repository 'deb [arch=amd64] https://download.docker.com/linux/ubuntu focal stable'
+      - name: install docker
+        run: apt-cache policy docker-ce
+      - name: install docker
+        run: sudo apt install docker-ce
+      - name: install docker
+        run: sudo systemctl status docker
+      - name: install codacy
+        run: cd codacy-analysis-cli && sudo make install
+      
+      - name: Install cloc 
+        run: cd spring-petclinic &&  sudo npm i -g cloc
+      - name: Run cloc 
+        run: cd spring-petclinic &&  cloc .
+      - name: Remove the file if it already exists
+        run: rm -rf pmd-bin-6.45.0.zip
+      - name: Remove the folder if it already exists
+        run: rm -rf pmd-bin-6.45.0
+      - name: Download the zip file
+        run: wget https://github.com/pmd/pmd/releases/download/pmd_releases%2F6.45.0/pmd-bin-6.45.0.zip
+      - name: Download unzip
+        run: sudo apt-get install unzip
+      - name: Unzip the .zip file
+        run: unzip pmd-bin-6.45.0.zip
+      - name: Run codacy analysis
+        run: cd codacy-analysis-cli && sudo codacy-analysis-cli analyze --tool metrics --directory ~/spring-petclinic/
+      - name: Run pmd for analysis
+        run: cd pmd-bin-6.45.0/bin/ && ./run.sh pmd -d ~/spring-petclinic/src/main/java/org/springframework/samples/petclinic/ -f text -R rulesets/java/quickstart.xml
+
+
+  - name: angular-build
+    steps:
+      - name: remove iTrust if it already exists
+        run: rm -rf angular-demo-travelapp
+      - name: clone itrust
+        run: git clone https://github.com/nivmprasad/angular-demo-travelapp.git
+      - name: npm install
+        run: cd angular-demo-travelapp && sudo npm install
+      - name: npm cache clean
+        run: cd angular-demo-travelapp && sudo npm cache clean -f
+      - name: n install
+        run: cd angular-demo-travelapp && sudo npm install -g n
+      - name: n install
+        run: cd angular-demo-travelapp && sudo n stable
+      - name: Angular install
+        run: cd angular-demo-travelapp && sudo npm install -g @angular/cli -y
+      - name: Update NG
+        run: cd angular-demo-travelapp && ng build --prod
+    
+  - name: angular-deploy
+    end_point: ""
+    execute_permission:
+      - name: permit web-srv
+        run: chmod 600 web-srv
+    vm_steps: 
+      - name: install seige
+        run: sudo apt install siege -y
+      - name: copy web-srv
+        run: cp /bakerx/web-srv .ssh/
+      - name: permit web-srv in VM
+        run: chmod 600 .ssh/web-srv
+    droplet_steps:
+      - name: allow openssh
+        run: sudo ufw allow openssh
+      - name: enable
+        run: sudo ufw enable 
+      - name: ufw status
+        run: sudo ufw status
+      - name: update
+        run: sudo apt-get update
+      - name: nginx
+        run: sudo apt-get install nginx 
+      - name: allow 443
+        run: sudo ufw allow 443
+      - name: allow 80
+        run: sudo ufw allow 80
+      - name: status nginx
+        run: systemctl status nginx
+      - name: giving access
+        run: sudo chmod -R 755 /var/www
+
+  - name: angular-test
+    steps:
+      - name: Copy command
+        run: cp /bakerx/karma.conf.js angular-demo-travelapp/
+      - name: Install browser
+        run: cd angular-demo-travelapp && sudo apt-get -y install chromium-browser
+      - name: export command
+        run: cd angular-demo-travelapp && export CHROME_BIN='/usr/bin/chromium-browser' && ng test
+
+  - name: angular-analysis
+    steps:
+      - name: remove folder
+        run: rm -rf codacy-analysis-cli
+      - name: clone
+        run: git clone https://github.com/codacy/codacy-analysis-cli.git
+      - name: update command
+        run: sudo apt update
+      - name: install docker
+        run: sudo apt install apt-transport-https ca-certificates curl software-properties-common
+      - name: install docker
+        run: curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
+      - name: install docker
+        run: sudo add-apt-repository 'deb [arch=amd64] https://download.docker.com/linux/ubuntu focal stable'
+      - name: install docker
+        run: apt-cache policy docker-ce
+      - name: install docker
+        run: sudo apt install docker-ce
+      - name: install docker
+        run: sudo systemctl status docker
+      - name: install codacy
+        run: cd codacy-analysis-cli && sudo make install
+      - name: Run codacy analysis
+        run: cd codacy-analysis-cli && sudo codacy-analysis-cli analyze --tool metrics --directory ~/angular-demo-travelapp/
+        
+      - name: Install cloc 
+        run: cd angular-demo-travelapp &&  sudo npm i -g cloc
+      - name: Run cloc 
+        run: cd angular-demo-travelapp &&  cloc .
+      - name: Copy command
+        run: cp /bakerx/analysis-vm.js angular-demo-travelapp/
+      - name: Run command
+        run: cd angular-demo-travelapp && node analysis-vm.js e2e/protractor.conf.js && node analysis-vm.js karma.conf.js
+      - name: Lint command
+        run: cd angular-demo-travelapp && ng lint
+      - name: Downloading lint packages
+        run: cd angular-demo-travelapp && ng g library corelib
+      - name: Making sure linting of corelib happens successfully
+        run: cd angular-demo-travelapp && ng lint corelib
+      
