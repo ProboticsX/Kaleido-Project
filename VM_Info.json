@@ -1,0 +1,7 @@
+{
+  "user": "vagrant",
+  "port": 2002,
+  "host": "deploy-vm",
+  "hostname": "127.0.0.1",
+  "private_key": "C:\\Users\\jains\\.bakerx\\insecure_private_key"
+}

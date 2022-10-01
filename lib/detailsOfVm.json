@@ -1,7 +1,0 @@
-{
-    "webIP" :"192.168.56.100",
-    "webName" :"pipeline",
-    "configIP" :"192.168.56.10",
-    "configName" :"ansible"
-}
-        
