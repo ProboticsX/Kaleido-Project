@@ -12,6 +12,6 @@
     ![image](https://user-images.githubusercontent.com/36927669/193427614-ccde00ea-46d9-4259-a635-cf97d4c3580d.png)
     
     - Downloaded `kubectl` on ubuntu VM
-    ![image](https://user-images.githubusercontent.com/36927669/193432243-e15ed334-b86d-4ce1-a5ad-7920426d3011.png)
+    ![image](https://user-images.githubusercontent.com/36927669/193432262-4781dbe9-6a91-4fe5-858d-2ab2b3ac0b4f.png)
 
     
